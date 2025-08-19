@@ -1,0 +1,99 @@
+/* Reset */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  }
+  
+  body {
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #f8fafc;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  
+  /* Main container */
+  .container {
+    background: #0f172a;
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 600px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  
+  /* Title */
+  .container h1 {
+    font-size: 1.8rem;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  
+  /* Controls */
+  .controls {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 15px;
+  }
+  
+  button {
+    background: #2563eb;
+    border: none;
+    padding: 10px 16px;
+    margin: 0 5px;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    transition: 0.2s;
+    font-size: 0.9rem;
+  }
+  
+  button:hover {
+    background: #1d4ed8;
+  }
+  
+  button.delete {
+    background: #dc2626;
+  }
+  
+  button.delete:hover {
+    background: #b91c1c;
+  }
+  
+  /* File list */
+  #fileList {
+    list-style: none;
+  }
+  
+  #fileList li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #1e293b;
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    transition: transform 0.1s;
+  }
+  
+  #fileList li:hover {
+    transform: scale(1.02);
+  }
+  
+  /* Responsive */
+  @media (max-width: 600px) {
+    #fileList li {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    #fileList button {
+      margin-top: 8px;
+      width: 100%;
+    }
+  }
+  

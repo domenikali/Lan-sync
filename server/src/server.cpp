@@ -11,6 +11,19 @@ void LANSyncServer::setup_routes() {
     server.Options(".*", [](const httplib::Request&, httplib::Response& res) {
         return; 
     });
+
+    server.Get("/", [](const httplib::Request&, httplib::Response& res) {
+        std::ifstream html("../web/index.html");
+        std::stringstream buffer;
+        buffer << html.rdbuf();
+        res.set_content(buffer.str(), "text/html");
+    });
+    server.Get("/app.js", [](const httplib::Request&, httplib::Response& res) {
+        std::ifstream js("../web/app.js");
+        std::stringstream buffer;
+        buffer << js.rdbuf();
+        res.set_content(buffer.str(), "application/javascript");
+    });
     
     server.Post("/api/upload", [this](const httplib::Request& req, httplib::Response& res) {
         handle_file_upload(req, res);
@@ -189,6 +202,9 @@ void LANSyncServer::start_server(const std::string& host = "0.0.0.0", int port =
     std::cout << "Starting LAN Drive server on " << host << ":" << port << std::endl;
     std::cout << "Storage path: " << storage_path << std::endl;
     server.listen(host, port);
+    std::cerr << "Something wrong listening\n Error code: " << errno << std::endl;
+    std::cerr << "Error description: " << strerror(errno) << std::endl;
+
 }
 
 bool LANSyncServer::authenticate_request(const httplib::Request& req) {
