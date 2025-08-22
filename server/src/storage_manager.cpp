@@ -3,13 +3,18 @@
 
 
 bool StorageManager::enqueue_cache(const std::string& filename) {
-    queue_mutex.lock();
-    if (file_queue.size() >= queue_size) {
-        return false; // Queue is full
+    std::string source_path = cache_path + "/" + filename;
+    size_t file_size = std::filesystem::file_size(source_path);
+    if (!std::filesystem::exists(source_path)) {
+        return false; 
     }
+    {
+    std::lock_guard<std::mutex> lock(queue_mutex);
+    std::cout<<"enqueuing file: "<<filename<<std::endl;
     file_queue.push(filename);
-    queue_size += std::filesystem::file_size(cache_path + "/" + filename);
-    queue_mutex.unlock();
+    queue_size += file_size;
+    cv.notify_one();
+    }
     return true;
 }
 
@@ -34,29 +39,25 @@ bool StorageManager::move_file_to_cache(const std::string& filename){
 
 void StorageManager::worker_thread() {
     while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(1)); 
-        queue_mutex.lock();
-        if (!file_queue.empty()) {
-            std::string filename = file_queue.front();
-            file_queue.pop();
-            queue_size -= std::filesystem::file_size(cache_path + "/" + filename);
-            move_file_to_storage(filename);
-        }
-        queue_mutex.unlock();
-        std::lock_guard<std::mutex> unlock(queue_mutex);
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        cv.wait(lock, [this]{ return !file_queue.empty(); });
+        std::string filename = file_queue.front();
+        file_queue.pop();
+        queue_size -= std::filesystem::file_size(cache_path + "/" + filename);
+        std::cout<<"dequeuing file: "<<filename<<std::endl;
+        lock.unlock();
+        move_file_to_storage(filename);
     }
 }
 
 bool StorageManager::move_file_to_storage(const std::string& filename) {
     std::string source_path = cache_path + "/" + filename;
     std::string dest_path = main_storage_path + "/" + filename;
-
-    if (!std::filesystem::exists(source_path)) {
-        return false; // Source file does not exist
-    }
-
+    std::cout<<"moving file to storage: "<<filename<<std::endl;
     try {
-        std::filesystem::rename(source_path, dest_path);
+        std::filesystem::copy(source_path, dest_path);
+        std::filesystem::remove(source_path);
+    
         return true;
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Error moving file to storage: " << e.what() << std::endl;

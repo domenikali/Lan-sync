@@ -70,3 +70,24 @@ async function deleteFile(filename) {
     alert("Delete failed");
   }
 }
+
+async function uploadFile() {
+  const fileInput = document.getElementById("fileInput");
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const res = await fetch(`${API_BASE}/upload`, {
+    method: "POST",
+    headers: {
+      "X-Filename": file.name,
+    },
+    body: file
+  });
+
+  if (res.ok) {
+    alert("Upload successful!");
+    listFiles();
+  } else {
+    alert("Upload failed");
+  }
+}

@@ -8,6 +8,8 @@
 #include <fstream>
 #include <iostream>
 #include <queue>
+#include <condition_variable>
+
 
 class StorageManager{
     private: 
@@ -17,6 +19,7 @@ class StorageManager{
         uint64_t storage_limit;
         uint64_t queue_size;
         std::mutex queue_mutex;
+        std::condition_variable cv;
     public:
         StorageManager(const std::string& storage_path, const std::string& cache_dir)
             : main_storage_path(storage_path), cache_path(cache_dir) {

@@ -71,8 +71,8 @@ void LANSyncServer::handle_file_upload(const httplib::Request& req, httplib::Res
         return;
     }
     
-    std::string full_path = storage_path + "/" + filename;
-    if (write_file_safely(full_path, req.body)) {
+    std::string full_path = ssd_cache_path + "/" + filename;
+    if (write_file_safely(filename,full_path, req.body)) {
         res.status = 200;
         res.set_content("{\"message\": \"Upload successful\", \"filename\": \"" + filename + "\"}", 
                       "application/json");
@@ -85,7 +85,7 @@ void LANSyncServer::handle_file_upload(const httplib::Request& req, httplib::Res
 void LANSyncServer::handle_file_download(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
     
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = storage_path + "/" + safe_filename;
+    std::string full_path = ssd_cache_path + "/" + safe_filename;
     
     if (!std::filesystem::exists(full_path)) {
         res.status = 404;
@@ -131,7 +131,20 @@ void LANSyncServer::handle_list_files(const httplib::Request& req, httplib::Resp
     bool first = true;
     
     try {
-        for (const auto& entry : std::filesystem::directory_iterator(storage_path)) {
+        for (const auto& entry : std::filesystem::directory_iterator(ssd_cache_path)) {
+            if (entry.is_regular_file()) {
+                if (!first) json_response += ",";
+                json_response += "{";
+                json_response += "\"name\": \"" + entry.path().filename().string() + "\",";
+                json_response += "\"size\": " + std::to_string(entry.file_size()) + ",";
+                json_response += "\"modified\": " + std::to_string(
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        entry.last_write_time().time_since_epoch()).count());
+                json_response += "}";
+                first = false;
+            }
+        }
+        for (const auto& entry : std::filesystem::directory_iterator(hdd_storage_path)) {
             if (entry.is_regular_file()) {
                 if (!first) json_response += ",";
                 json_response += "{";
@@ -157,7 +170,7 @@ void LANSyncServer::handle_list_files(const httplib::Request& req, httplib::Resp
 void LANSyncServer::handle_file_delete(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
 
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = storage_path + "/" + safe_filename;
+    std::string full_path = ssd_cache_path + "/" + safe_filename;
     
     if (std::filesystem::remove(full_path)) {
         res.status = 200;
@@ -171,7 +184,7 @@ void LANSyncServer::handle_file_delete(const std::string& filename, const httpli
 void LANSyncServer::handle_file_info(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
     
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = storage_path + "/" + safe_filename;
+    std::string full_path = ssd_cache_path + "/" + safe_filename;
     
     if (!std::filesystem::exists(full_path)) {
         res.status = 404;
@@ -200,7 +213,7 @@ void LANSyncServer::handle_file_info(const std::string& filename, const httplib:
 
 void LANSyncServer::start_server(const std::string& host = "0.0.0.0", int port = 8080) {
     std::cout << "Starting LAN Drive server on " << host << ":" << port << std::endl;
-    std::cout << "Storage path: " << storage_path << std::endl;
+    std::cout << "Storage path: " << ssd_cache_path << std::endl;
     server.listen(host, port);
     std::cerr << "Something wrong listening\n Error code: " << errno << std::endl;
     std::cerr << "Error description: " << strerror(errno) << std::endl;
@@ -229,7 +242,7 @@ std::string LANSyncServer::sanitize_filename(const std::string& filename) {
     return safe.empty() ? "unnamed_file" : safe;
 }
 
-bool LANSyncServer::write_file_safely(const std::string& path, const std::string& content) {
+bool LANSyncServer::write_file_safely(const std::string& filename,const std::string& path, const std::string& content) {
     try {
         std::ofstream file(path, std::ios::binary);
         
@@ -256,6 +269,7 @@ bool LANSyncServer::write_file_safely(const std::string& path, const std::string
         }
     
         file.close();
+        storage_manager->enqueue_cache(filename);
         return true;
     
     } catch (const std::filesystem::filesystem_error& e) {
@@ -268,5 +282,5 @@ bool LANSyncServer::write_file_safely(const std::string& path, const std::string
 }
 
 void LANSyncServer::ensure_storage_directory() {
-    std::filesystem::create_directories(storage_path);
+    std::filesystem::create_directories(ssd_cache_path);
 }
