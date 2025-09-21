@@ -1,0 +1,16 @@
+
+services:
+  lan-sync-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lan-sync-server
+    ports:
+      - "8080:8080"
+    volumes:
+      # IMPORTANT:
+      # Replace '/mnt/ssd_cache' with the actual path to your SSD cache on your machine.
+      # Replace '/mnt/hdd_storage' with the actual path to your HDD storage on your machine.
+      - /mnt/ssd_cache:/data/ssd_cache
+      - /mnt/hdd_storage:/data/hdd_storage
+    restart: unless-stopped

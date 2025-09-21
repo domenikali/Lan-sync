@@ -13,13 +13,24 @@ void LANSyncServer::setup_routes() {
     });
 
     server.Get("/", [](const httplib::Request&, httplib::Response& res) {
-        std::ifstream html("../web/index.html");
+        std::ifstream html("web/index.html");
+        if (!html) {
+            res.set_content("Frontend not found", "text/plain");
+            res.status = 404;
+            return;
+        }
         std::stringstream buffer;
         buffer << html.rdbuf();
         res.set_content(buffer.str(), "text/html");
     });
     server.Get("/app.js", [](const httplib::Request&, httplib::Response& res) {
-        std::ifstream js("../web/app.js");
+        std::ifstream js("web/app.js");
+        if (!js) {
+            res.set_content("Frontend script not found", "text/plain");
+            res.status = 404;
+            return;
+        }
+
         std::stringstream buffer;
         buffer << js.rdbuf();
         res.set_content(buffer.str(), "application/javascript");
