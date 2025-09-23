@@ -9,6 +9,7 @@
 #include <iostream>
 #include <queue>
 #include <condition_variable>
+#include "db_manager.hpp"
 
 
 class StorageManager{
@@ -20,10 +21,12 @@ class StorageManager{
         uint64_t queue_size;
         std::mutex queue_mutex;
         std::condition_variable cv;
+        DBManager *db_manager;
     public:
-        StorageManager(const std::string& storage_path, const std::string& cache_dir)
+        StorageManager(const std::string& storage_path, const std::string& cache_dir, DBManager* dbm)
             : main_storage_path(storage_path), cache_path(cache_dir) {
             ensure_storage_directory();
+            db_manager=dbm;
             std::thread t (&StorageManager::worker_thread, this);
             t.detach();
         }

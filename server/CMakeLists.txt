@@ -25,6 +25,7 @@ target_link_libraries(lan_sync_server
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto
+    sqlite3
 )
 
 # Compiler options

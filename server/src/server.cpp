@@ -1,5 +1,14 @@
 #include "server.hpp"
 
+void LANSyncServer::start_server(const std::string& host = "0.0.0.0", int port = 8080) {
+    std::cout << "Starting LAN Drive server on " << host << ":" << port << std::endl;
+    std::cout << "Storage path: " << ssd_cache_path << std::endl;
+    server.listen(host, port);
+    std::cerr << "Something wrong listening\n Error code: " << errno << std::endl;
+    std::cerr << "Error description: " << strerror(errno) << std::endl;
+
+}
+
 void LANSyncServer::setup_routes() {
     server.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
@@ -58,10 +67,14 @@ void LANSyncServer::setup_routes() {
         std::string filename = req.matches[1];
         handle_file_info(filename, req, res);
     });
+
+    server.Get("/delete/(.*)", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string filename = req.matches[1];
+        handle_file_delete(filename, req, res);
+    });
 }
 
 void LANSyncServer::handle_file_upload(const httplib::Request& req, httplib::Response& res) {
-   
     
     std::string filename = "upload_" + std::to_string(time(nullptr));
     auto it = req.headers.find("X-Filename");
@@ -74,17 +87,37 @@ void LANSyncServer::handle_file_upload(const httplib::Request& req, httplib::Res
         res.set_content("{\"error\": \"File too large\"}", "application/json");
         return;
     }
-    
+
     filename = sanitize_filename(filename);
     if (filename.empty()) {
         res.status = 400;
         res.set_content("{\"error\": \"Invalid filename\"}", "application/json");
         return;
     }
+
+    std::string hash = calculate_sha256(req.body);
+
+    if (db_manager->get_file_by_hash(hash).has_value()) {
+        res.status = 409;
+        res.set_content("{\"error\": \"File already exists (same content)\"}", "application/json");
+        return;
+    }
     
+    //could be optimised
+    if (db_manager->get_file_by_name(filename).has_value()) {
+        int version=1;
+        while(db_manager->get_file_by_name(filename+"_("+std::to_string(version)+")").has_value()){
+            version++;
+        }
+        std::cout<<"this is not an infinite loop right?"<<std::endl;
+        
+        filename.append("_("+std::to_string(version)+")");
+    }
+
     std::string full_path = ssd_cache_path + "/" + filename;
     if (write_file_safely(filename,full_path, req.body)) {
         res.status = 200;
+        db_manager->add_file(filename, hash, req.body.size());
         res.set_content("{\"message\": \"Upload successful\", \"filename\": \"" + filename + "\"}", 
                       "application/json");
     } else {
@@ -96,13 +129,14 @@ void LANSyncServer::handle_file_upload(const httplib::Request& req, httplib::Res
 void LANSyncServer::handle_file_download(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
     
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = ssd_cache_path + "/" + safe_filename;
-    
-    if (!std::filesystem::exists(full_path)) {
+    std::optional<FileRecord> record;
+    if(!(record=db_manager->get_file_by_name(safe_filename)).has_value()){
         res.status = 404;
-        res.set_content("{\"error\": \"File not found\"}", "application/json");
+        res.set_content("{\"error\": \"File not found \"}", "application/json");
         return;
     }
+
+    std::string full_path = (record->location=="CACHE" ? ssd_cache_path : hdd_storage_path)+ "/" + safe_filename;
     
     std::ifstream file(full_path, std::ios::binary);
     if (!file) {
@@ -111,7 +145,7 @@ void LANSyncServer::handle_file_download(const std::string& filename, const http
         return;
     }
 
-    auto file_size = std::filesystem::file_size(full_path);
+    auto file_size = record->size_bytes;
 
     auto file_stream = std::make_shared<std::ifstream>(std::move(file));
     
@@ -136,56 +170,48 @@ void LANSyncServer::handle_file_download(const std::string& filename, const http
     res.set_header("Content-Disposition", "attachment; filename=\"" + safe_filename + "\"");
 }
 
+// In server/src/server.cpp
+
 void LANSyncServer::handle_list_files(const httplib::Request& req, httplib::Response& res) {
+    auto files = db_manager->get_all_files();
     
     std::string json_response = "{\"files\": [";
     bool first = true;
-    
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(ssd_cache_path)) {
-            if (entry.is_regular_file()) {
-                if (!first) json_response += ",";
-                json_response += "{";
-                json_response += "\"name\": \"" + entry.path().filename().string() + "\",";
-                json_response += "\"size\": " + std::to_string(entry.file_size()) + ",";
-                json_response += "\"modified\": " + std::to_string(
-                    std::chrono::duration_cast<std::chrono::seconds>(
-                        entry.last_write_time().time_since_epoch()).count());
-                json_response += "}";
-                first = false;
-            }
-        }
-        for (const auto& entry : std::filesystem::directory_iterator(hdd_storage_path)) {
-            if (entry.is_regular_file()) {
-                if (!first) json_response += ",";
-                json_response += "{";
-                json_response += "\"name\": \"" + entry.path().filename().string() + "\",";
-                json_response += "\"size\": " + std::to_string(entry.file_size()) + ",";
-                json_response += "\"modified\": " + std::to_string(
-                    std::chrono::duration_cast<std::chrono::seconds>(
-                        entry.last_write_time().time_since_epoch()).count());
-                json_response += "}";
-                first = false;
-            }
-        }
-    } catch (const std::exception& e) {
-        res.status = 500;
-        res.set_content("{\"error\": \"Cannot list files\"}", "application/json");
-        return;
+    for (const auto& file : files) {
+        if (!first) json_response += ",";
+        json_response += "{";
+        json_response += "\"name\": \"" + file.filename + "\",";
+        json_response += "\"size\": " + std::to_string(file.size_bytes) + ",";
+        
+        // Note: C++20 has better time parsing, but this is a simple way
+        // For a robust solution, you'd parse file.created_at
+        json_response += "\"modified\": 0"; // Placeholder for timestamp
+
+        json_response += "}";
+        first = false;
     }
     
     json_response += "]}";
     res.set_content(json_response, "application/json");
 }
 
+
 void LANSyncServer::handle_file_delete(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
 
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = ssd_cache_path + "/" + safe_filename;
+    std::optional<FileRecord> record;
+    if(!(record=db_manager->get_file_by_name(safe_filename)).has_value()){
+        res.status = 404;
+        res.set_content("{\"error\": \"File not found \"}", "application/json");
+        return;
+    }
+
+    std::string full_path = (record->location=="CACHE" ? ssd_cache_path : hdd_storage_path)+ "/" + safe_filename;
     
     if (std::filesystem::remove(full_path)) {
         res.status = 200;
         res.set_content("{\"message\": \"File deleted\"}", "application/json");
+        db_manager->delete_file(safe_filename);
     } else {
         res.status = 404;
         res.set_content("{\"error\": \"File not found\"}", "application/json");
@@ -195,41 +221,25 @@ void LANSyncServer::handle_file_delete(const std::string& filename, const httpli
 void LANSyncServer::handle_file_info(const std::string& filename, const httplib::Request& req, httplib::Response& res) {
     
     std::string safe_filename = sanitize_filename(filename);
-    std::string full_path = ssd_cache_path + "/" + safe_filename;
-    
-    if (!std::filesystem::exists(full_path)) {
+
+    std::optional<FileRecord> record;
+    if(!(record=db_manager->get_file_by_name(safe_filename)).has_value()){
         res.status = 404;
-        res.set_content("{\"error\": \"File not found\"}", "application/json");
+        res.set_content("{\"error\": \"File not found \"}", "application/json");
         return;
     }
     
-    try {
-        auto file_size = std::filesystem::file_size(full_path);
-        auto last_write = std::filesystem::last_write_time(full_path);
-        
-        std::string json_response = "{";
-        json_response += "\"name\": \"" + safe_filename + "\",";
-        json_response += "\"size\": " + std::to_string(file_size) + ",";
-        json_response += "\"modified\": " + std::to_string(
-            std::chrono::duration_cast<std::chrono::seconds>(
-                last_write.time_since_epoch()).count());
-        json_response += "}";
-        
-        res.set_content(json_response, "application/json");
-    } catch (const std::exception& e) {
-        res.status = 500;
-        res.set_content("{\"error\": \"Cannot get file info\"}", "application/json");
-    }
+    std::string json_response = "{";
+    json_response += "\"name\": \"" + safe_filename + "\",";
+    json_response += "\"size\": " + std::to_string(record->size_bytes) + ",";
+    json_response += "\"modified\": " + record->created_at + ",";
+    json_response += "}";
+    
+    res.set_content(json_response, "application/json");
+    
 }
 
-void LANSyncServer::start_server(const std::string& host = "0.0.0.0", int port = 8080) {
-    std::cout << "Starting LAN Drive server on " << host << ":" << port << std::endl;
-    std::cout << "Storage path: " << ssd_cache_path << std::endl;
-    server.listen(host, port);
-    std::cerr << "Something wrong listening\n Error code: " << errno << std::endl;
-    std::cerr << "Error description: " << strerror(errno) << std::endl;
 
-}
 
 bool LANSyncServer::authenticate_request(const httplib::Request& req) {
     
@@ -294,4 +304,5 @@ bool LANSyncServer::write_file_safely(const std::string& filename,const std::str
 
 void LANSyncServer::ensure_storage_directory() {
     std::filesystem::create_directories(ssd_cache_path);
+    std::filesystem::create_directories(hdd_storage_path);
 }

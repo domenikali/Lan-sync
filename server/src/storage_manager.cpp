@@ -57,7 +57,7 @@ bool StorageManager::move_file_to_storage(const std::string& filename) {
     try {
         std::filesystem::copy(source_path, dest_path);
         std::filesystem::remove(source_path);
-    
+        db_manager->update_file_location(filename, "STORAGE");
         return true;
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Error moving file to storage: " << e.what() << std::endl;
